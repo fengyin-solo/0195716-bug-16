@@ -82,12 +82,15 @@ class CanvasManager {
     
     handleResize() {
         this.renderer.resize();
-        
+
+        // 窗口变化后，按画布上实际摆放的全部透镜重新夹取坐标，
+        // 避免透镜停留在已超出新画布范围的位置导致判定与实际光路不符
+        const margin = 50;
         this.lenses.forEach(lens => {
-            lens.x = Utils.clamp(lens.x, 50, this.renderer.width - 50);
-            lens.y = Utils.clamp(lens.y, 50, this.renderer.height - 50);
+            lens.x = Utils.clamp(lens.x, margin, this.renderer.width - margin);
+            lens.y = Utils.clamp(lens.y, margin, this.renderer.height - margin);
         });
-        
+
         this.renderer.setLenses(this.lenses);
     }
     
@@ -143,29 +146,53 @@ class CanvasManager {
     handleDrop(e) {
         e.preventDefault();
         document.getElementById('canvas-drop-hint').classList.add('hidden');
-        
+
         const lensType = e.dataTransfer.getData('lens-type');
         const material = e.dataTransfer.getData('lens-material');
-        
+
         if (!lensType) return;
-        
-        const pos = this.getPointerPos(e);
-        
-        const lens = new Lens({
-            type: lensType,
-            x: pos.x,
-            y: pos.y,
-            material: material || 'normal'
-        });
-        
-        this.addLens(lens);
+
+        // 鼠标拖放与触摸点击共用 addLensAt，落点统一夹取到画布范围
+        const lens = this.addLensAt(lensType, material, this.getPointerPos(e));
         this.selectLens(lens);
         Utils.showToast('透镜已添加', 'success');
     }
-    
+
     addLens(lens) {
         this.lenses.push(lens);
         this.renderer.setLenses(this.lenses);
+    }
+
+    /**
+     * 按类型/材料添加一片透镜到画布（鼠标拖放与触摸点击的统一入口）
+     * 位置夹取在画布范围内，保证透镜始终处于实际光路区域
+     */
+    addLensAt(type, material, pos = null) {
+        const margin = 50;
+        const x = pos !== null
+            ? Utils.clamp(pos.x, margin, this.renderer.width - margin)
+            : this.renderer.width / 2;
+        const y = pos !== null
+            ? Utils.clamp(pos.y, margin, this.renderer.height - margin)
+            : this.renderer.height / 2;
+
+        const lens = new Lens({
+            type: type,
+            x: x,
+            y: y,
+            material: material || 'normal'
+        });
+
+        this.addLens(lens);
+        return lens;
+    }
+
+    /**
+     * 获取画布上实际摆放的全部透镜（按画布顺序）
+     * 判定、提交等逻辑一律以此为准，不依赖添加顺序的假设
+     */
+    getLenses() {
+        return this.lenses;
     }
     
     removeLens(lens) {

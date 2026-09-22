@@ -114,6 +114,12 @@ class App {
         if (btnQuizExit) {
             btnQuizExit.addEventListener('click', () => this.exitQuizFromResult());
         }
+
+        // 结果模态框 - 返回画布修改后重做
+        const btnQuizBack = document.getElementById('btn-quiz-back');
+        if (btnQuizBack) {
+            btnQuizBack.addEventListener('click', () => this.backToCanvasFromResult());
+        }
         
         // 监听题目变化事件
         window.addEventListener('questionChanged', (e) => {
@@ -342,24 +348,54 @@ class App {
         }
         
         // 更新详细检查项
+        // 多片透镜时按画布上的实际顺序逐片列出结果；光源模式等整体设置单独分组
         const detailsEl = document.getElementById('quiz-result-details');
         if (detailsEl) {
-            if (result.details && result.details.length > 0) {
-                detailsEl.innerHTML = result.details.map(detail => `
-                    <div class="result-detail-item">
-                        <span class="result-detail-name">${detail.name}</span>
-                        <div class="result-detail-values">
-                            <span class="result-detail-expected">期望：${detail.expected}</span>
-                            <span class="result-detail-arrow">→</span>
-                            <span class="result-detail-actual">实际：${detail.actual}</span>
-                            <span class="result-detail-status ${detail.correct ? 'correct' : 'incorrect'}">
-                                ${detail.correct ? '✓' : '✗'}
-                            </span>
-                        </div>
+            const lensResults = result.lensResults || [];
+            const globalResults = result.globalResults || [];
+
+            const renderDetail = (detail) => `
+                <div class="result-detail-item">
+                    <span class="result-detail-name">${detail.name}</span>
+                    <div class="result-detail-values">
+                        <span class="result-detail-expected">期望：${detail.expected}</span>
+                        <span class="result-detail-arrow">→</span>
+                        <span class="result-detail-actual">实际：${detail.actual}</span>
+                        <span class="result-detail-status ${detail.correct ? 'correct' : 'incorrect'}">
+                            ${detail.correct ? '✓' : '✗'}
+                        </span>
                     </div>
-                `).join('');
+                </div>
+            `;
+
+            const renderLensGroup = (lensResult) => `
+                <div class="result-lens-group">
+                    <div class="result-lens-group-title ${lensResult.correct ? 'correct' : 'incorrect'}">
+                        <span class="result-lens-status">${lensResult.correct ? '✓' : '✗'}</span>
+                        <span class="result-lens-label">${lensResult.label}</span>
+                    </div>
+                    ${lensResult.details.map(renderDetail).join('')}
+                </div>
+            `;
+
+            let html = lensResults.map(renderLensGroup).join('');
+
+            if (globalResults.length > 0) {
+                html += `
+                    <div class="result-lens-group">
+                        <div class="result-lens-group-title">
+                            <span class="result-lens-label">整体设置</span>
+                        </div>
+                        ${globalResults.map(renderDetail).join('')}
+                    </div>
+                `;
+            }
+
+            if (result.details && result.details.length > 0) {
+                detailsEl.innerHTML = html;
                 detailsEl.style.display = 'flex';
             } else {
+                detailsEl.innerHTML = '';
                 detailsEl.style.display = 'none';
             }
         }
@@ -425,6 +461,23 @@ class App {
         this.quizManager.nextQuestion();
     }
     
+    /**
+     * 从结果模态框返回画布，保留透镜以便逐片修改后重新提交
+     */
+    backToCanvasFromResult() {
+        // 回滚本次提交的计分，同一题重做不重复计数
+        this.quizManager.undoLastSubmission();
+
+        // 仅隐藏结果弹窗，不清空画布：按实际摆放的透镜重新修改、重新判定
+        const resultModal = document.getElementById('quiz-result-modal');
+        if (resultModal) {
+            resultModal.classList.add('hidden');
+        }
+
+        this.updateScoreDisplay();
+        Utils.showToast('已返回画布，可逐片调整透镜后重新提交', 'info');
+    }
+
     /**
      * 从结果模态框退出测验
      */

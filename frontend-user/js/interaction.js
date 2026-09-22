@@ -34,16 +34,13 @@ class InteractionManager {
                 item.classList.remove('dragging');
             });
             
-            // 触摸设备点击添加
+            // 触摸设备点击添加（与鼠标拖放走同一入口，位置统一夹取）
             if (Utils.isTouchDevice()) {
                 item.addEventListener('click', () => {
-                    const lens = new Lens({
-                        type: item.dataset.lensType,
-                        x: this.renderer.width / 2,
-                        y: this.renderer.height / 2,
-                        material: item.dataset.material || 'normal'
-                    });
-                    this.canvasManager.addLens(lens);
+                    const lens = this.canvasManager.addLensAt(
+                        item.dataset.lensType,
+                        item.dataset.material || 'normal'
+                    );
                     this.canvasManager.selectLens(lens);
                     Utils.showToast('透镜已添加', 'success');
                 });

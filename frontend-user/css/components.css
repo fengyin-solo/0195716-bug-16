@@ -398,6 +398,7 @@
 .modal-footer {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: var(--spacing-sm);
     padding: var(--spacing-md);
     border-top: 1px solid var(--color-border);
@@ -1023,6 +1024,37 @@
 
 .result-detail-status.incorrect {
     color: var(--color-error);
+}
+
+.result-lens-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
+}
+
+.result-lens-group-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-border);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
+}
+
+.result-lens-group-title.correct {
+    color: var(--color-success);
+}
+
+.result-lens-group-title.incorrect {
+    color: var(--color-error);
+}
+
+.result-lens-group .result-detail-item {
+    margin-left: var(--spacing-sm);
 }
 
 .quiz-result-stats {
