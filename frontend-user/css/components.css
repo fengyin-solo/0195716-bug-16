@@ -1025,6 +1025,76 @@
     color: var(--color-error);
 }
 
+/* 多透镜逐片结果分组 */
+.result-lens-group {
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    text-align: left;
+}
+
+.result-lens-group.correct {
+    border-left: 3px solid var(--color-success);
+}
+
+.result-lens-group.incorrect {
+    border-left: 3px solid var(--color-error);
+}
+
+.result-lens-group.global {
+    border-left: 3px solid var(--color-primary);
+}
+
+.result-lens-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 6px var(--spacing-sm);
+    background-color: var(--color-bg-input);
+    font-size: var(--font-size-xs);
+}
+
+.result-lens-badge {
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
+    white-space: nowrap;
+}
+
+.result-lens-title {
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text-primary);
+}
+
+.result-lens-material {
+    color: var(--color-text-secondary);
+    flex: 1;
+}
+
+.result-lens-items {
+    display: flex;
+    flex-direction: column;
+}
+
+.result-lens-items .result-detail-item {
+    border-radius: 0;
+    background-color: transparent;
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+.result-lens-items .result-detail-item:last-child {
+    border-bottom: none;
+}
+
+.result-inactive-hint {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: rgba(212, 160, 23, 0.1);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    text-align: left;
+    line-height: 1.5;
+}
+
 .quiz-result-stats {
     display: flex;
     justify-content: space-around;

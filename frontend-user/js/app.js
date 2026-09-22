@@ -341,25 +341,76 @@ class App {
             explanationEl.textContent = result.explanation;
         }
         
-        // 更新详细检查项
+        // 更新详细检查项（多透镜逐片列出，全局检查项单列）
         const detailsEl = document.getElementById('quiz-result-details');
         if (detailsEl) {
-            if (result.details && result.details.length > 0) {
-                detailsEl.innerHTML = result.details.map(detail => `
-                    <div class="result-detail-item">
-                        <span class="result-detail-name">${detail.name}</span>
-                        <div class="result-detail-values">
-                            <span class="result-detail-expected">期望：${detail.expected}</span>
-                            <span class="result-detail-arrow">→</span>
-                            <span class="result-detail-actual">实际：${detail.actual}</span>
-                            <span class="result-detail-status ${detail.correct ? 'correct' : 'incorrect'}">
-                                ${detail.correct ? '✓' : '✗'}
-                            </span>
+            const details = result.details || { lensResults: [], globalItems: [], inactiveLenses: [] };
+            const lensResults = details.lensResults || [];
+            const globalItems = details.globalItems || [];
+            const inactiveLenses = details.inactiveLenses || [];
+
+            const renderItem = (detail) => `
+                <div class="result-detail-item">
+                    <span class="result-detail-name">${detail.name}</span>
+                    <div class="result-detail-values">
+                        <span class="result-detail-expected">期望：${detail.expected}</span>
+                        <span class="result-detail-arrow">→</span>
+                        <span class="result-detail-actual">实际：${detail.actual}</span>
+                        <span class="result-detail-status ${detail.correct ? 'correct' : 'incorrect'}">
+                            ${detail.correct ? '✓' : '✗'}
+                        </span>
+                    </div>
+                </div>
+            `;
+
+            let html = '';
+
+            lensResults.forEach(group => {
+                const groupClass = group.allCorrect ? 'correct' : 'incorrect';
+                const groupIcon = group.allCorrect ? '✓' : '✗';
+                html += `
+                    <div class="result-lens-group ${groupClass}">
+                        <div class="result-lens-header">
+                            <span class="result-lens-badge">第 ${group.index} 片</span>
+                            <span class="result-lens-title">${group.name}</span>
+                            <span class="result-lens-material">${group.material}</span>
+                            <span class="result-detail-status ${groupClass}">${groupIcon}</span>
+                        </div>
+                        <div class="result-lens-items">
+                            ${group.items.map(renderItem).join('')}
                         </div>
                     </div>
-                `).join('');
+                `;
+            });
+
+            if (globalItems.length > 0) {
+                html += `
+                    <div class="result-lens-group global">
+                        <div class="result-lens-header">
+                            <span class="result-lens-title">整体光路</span>
+                        </div>
+                        <div class="result-lens-items">
+                            ${globalItems.map(renderItem).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (inactiveLenses.length > 0) {
+                html += `
+                    <div class="result-inactive-hint">
+                        ⚠️ 以下透镜在画布上但不在光路上，未参与判定：
+                        ${inactiveLenses.map(l => l.name).join('、')}
+                    </div>
+                `;
+            }
+
+            const hasContent = lensResults.length > 0 || globalItems.length > 0 || inactiveLenses.length > 0;
+            if (hasContent) {
+                detailsEl.innerHTML = html;
                 detailsEl.style.display = 'flex';
             } else {
+                detailsEl.innerHTML = '';
                 detailsEl.style.display = 'none';
             }
         }

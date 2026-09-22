@@ -21,16 +21,17 @@ class Renderer {
         const wrapper = this.canvas.parentElement;
         const rect = wrapper.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        
+
         this.canvas.width = rect.width * dpr;
         this.canvas.height = rect.height * dpr;
         this.canvas.style.width = `${rect.width}px`;
         this.canvas.style.height = `${rect.height}px`;
-        
-        this.ctx.scale(dpr, dpr);
+
+        // 使用 setTransform 重置整个变换矩阵，避免多次 resize 时 scale 累积
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.width = rect.width;
         this.height = rect.height;
-        
+
         this.render();
     }
     
@@ -338,8 +339,87 @@ class Renderer {
     }
     
     /**
+     * 追踪一条光线实际穿过的全部透镜（按光路先后顺序）
+     *
+     * 判定"实际参与光路"的唯一依据：当前光源模式下至少有一条光线
+     * 与该透镜相交。画布上摆放位置过高/过低、不在光路上的透镜不会命中。
+     *
+     * @param {Object} ray 初始光线 { x, y, angle }
+     * @returns {Array<{lens: Object, x: number, y: number, angle: number}>}
+     *          命中片段，angle 为经过该透镜折射后的光线角度
+     */
+    traceRayPath(ray) {
+        let rayX = ray.x;
+        let rayY = ray.y;
+        let rayAngle = ray.angle;
+        let lastLensId = null;
+        const segments = [];
+
+        // 追踪光线穿过多个透镜
+        for (let i = 0; i < 20; i++) {
+            let nearest = null;
+            let nearestLens = null;
+            let minDist = Infinity;
+
+            // 找最近的透镜（按距离排序）
+            for (const lens of this.lenses) {
+                // 跳过刚穿过的透镜
+                if (lens.id === lastLensId) continue;
+
+                const hit = Physics.calculateRayLensIntersection(rayX, rayY, rayAngle, lens);
+                if (hit && hit.distance < minDist) {
+                    minDist = hit.distance;
+                    nearest = hit;
+                    nearestLens = lens;
+                }
+            }
+
+            // 没有更多透镜了
+            if (!nearest) break;
+
+            const newAngle = Physics.calculateRefractedAngle(rayAngle, nearest.y, nearestLens);
+
+            rayX = nearest.x;
+            rayY = nearest.y;
+            rayAngle = newAngle;
+            lastLensId = nearestLens.id;
+
+            segments.push({ lens: nearestLens, x: nearest.x, y: nearest.y, angle: newAngle });
+        }
+
+        return segments;
+    }
+
+    /**
+     * 获取当前光源模式下实际参与光路的透镜
+     * （至少被一条光线穿过，按 x 坐标/光路顺序返回，不重复）
+     */
+    getLensesInPath() {
+        if (this.lenses.length === 0) return [];
+
+        let rays;
+        if (this.lightMode === CONFIG.LIGHT_MODES.PARALLEL) {
+            rays = Physics.generateParallelRays(this.height, this.rayCount, this.incidentAngle);
+        } else {
+            rays = Physics.generatePointSourceRays(50, this.height / 2, this.rayCount);
+        }
+
+        const hitOrder = new Map();
+        rays.forEach(ray => {
+            this.traceRayPath(ray).forEach(seg => {
+                if (!hitOrder.has(seg.lens.id)) {
+                    hitOrder.set(seg.lens.id, seg.lens);
+                }
+            });
+        });
+
+        // 按光路先后（x 坐标）排序返回
+        return Array.from(hitOrder.values()).sort((a, b) => a.x - b.x);
+    }
+
+    /**
      * 追踪并绘制单条光线 - 支持多透镜
-     * 
+     *
      * 光路规律：
      * - 凸透镜：光线向光轴会聚
      * - 凹透镜：光线向外发散
@@ -348,12 +428,7 @@ class Renderer {
      */
     traceRay(ray, color = null) {
         const ctx = this.ctx;
-        let rayX = ray.x;
-        let rayY = ray.y;
-        let rayAngle = ray.angle;
-        let isIncident = true;
-        let lastLensId = null;
-        
+
         // 设置颜色
         if (color) {
             ctx.strokeStyle = CONFIG.COLORS[`RAY_${color.toUpperCase()}`];
@@ -361,69 +436,48 @@ class Renderer {
             ctx.strokeStyle = CONFIG.COLORS.INCIDENT_RAY;
         }
         ctx.lineWidth = CONFIG.RENDER.RAY_WIDTH;
-        
+
+        // 复用统一的光路追踪，保证绘制与判定口径一致
+        const segments = this.traceRayPath(ray);
+
         ctx.beginPath();
-        ctx.moveTo(rayX, rayY);
-        
-        // 追踪光线穿过多个透镜
-        for (let i = 0; i < 20; i++) {
-            let nearest = null;
-            let nearestLens = null;
-            let minDist = Infinity;
-            
-            // 找最近的透镜（按距离排序）
-            for (const lens of this.lenses) {
-                // 跳过刚穿过的透镜
-                if (lens.id === lastLensId) continue;
-                
-                const hit = Physics.calculateRayLensIntersection(rayX, rayY, rayAngle, lens);
-                if (hit && hit.distance < minDist) {
-                    minDist = hit.distance;
-                    nearest = hit;
-                    nearestLens = lens;
-                }
-            }
-            
-            // 没有更多透镜了
-            if (!nearest) break;
-            
+        ctx.moveTo(ray.x, ray.y);
+
+        let currentX = ray.x;
+        let currentY = ray.y;
+        let currentAngle = ray.angle;
+
+        segments.forEach((seg, index) => {
             // 画到交点
-            ctx.lineTo(nearest.x, nearest.y);
+            ctx.lineTo(seg.x, seg.y);
             ctx.stroke();
-            
-            // 使用新的物理API计算折射角度
-            // 新API: Physics.calculateRefractedAngle(rayAngle, rayY, lens)
-            const newAngle = Physics.calculateRefractedAngle(rayAngle, nearest.y, nearestLens);
-            
-            // 更新光线状态
-            rayX = nearest.x;
-            rayY = nearest.y;
-            rayAngle = newAngle;
-            lastLensId = nearestLens.id;
-            
-            // 折射后换颜色
-            if (!color && isIncident) {
+
+            currentX = seg.x;
+            currentY = seg.y;
+            currentAngle = seg.angle;
+
+            // 第一次折射后换颜色：红色入射光，蓝色折射光
+            if (!color && index === 0) {
                 ctx.strokeStyle = CONFIG.COLORS.REFRACTED_RAY;
-                isIncident = false;
             }
-            
+
             ctx.beginPath();
-            ctx.moveTo(rayX, rayY);
-        }
-        
+            ctx.moveTo(currentX, currentY);
+        });
+
         // 画到画布边缘
-        const dirX = Math.cos(rayAngle);
-        const dirY = Math.sin(rayAngle);
+        const dirX = Math.cos(currentAngle);
+        const dirY = Math.sin(currentAngle);
         let endX, endY;
-        
+
         if (Math.abs(dirX) > 0.001) {
             endX = dirX > 0 ? this.width + 50 : -50;
-            endY = rayY + dirY * (endX - rayX) / dirX;
+            endY = currentY + dirY * (endX - currentX) / dirX;
         } else {
-            endX = rayX;
+            endX = currentX;
             endY = dirY > 0 ? this.height + 50 : -50;
         }
-        
+
         ctx.lineTo(endX, endY);
         ctx.stroke();
     }

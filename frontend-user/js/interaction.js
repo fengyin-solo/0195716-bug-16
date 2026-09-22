@@ -34,13 +34,15 @@ class InteractionManager {
                 item.classList.remove('dragging');
             });
             
-            // 触摸设备点击添加
+            // 触摸设备点击添加（HTML5 拖拽不支持触摸）
             if (Utils.isTouchDevice()) {
                 item.addEventListener('click', () => {
+                    // 多片透镜错开放置，避免完全叠在画布中心无法点选
+                    const offset = (this.canvasManager.lenses.length % 5) * 24;
                     const lens = new Lens({
                         type: item.dataset.lensType,
-                        x: this.renderer.width / 2,
-                        y: this.renderer.height / 2,
+                        x: this.renderer.width / 2 + offset - 48,
+                        y: this.renderer.height / 2 + offset - 48,
                         material: item.dataset.material || 'normal'
                     });
                     this.canvasManager.addLens(lens);

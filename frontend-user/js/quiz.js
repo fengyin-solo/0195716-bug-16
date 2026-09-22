@@ -82,6 +82,11 @@ class QuizManager {
     
     /**
      * 验证用户答案
+     *
+     * 判定范围：画布上实际参与光路（被当前光源发出的光线穿过）的全部透镜，
+     * 与透镜添加顺序无关。每一片透镜都按题目标准逐片检查，逐片列出结论；
+     * 只有所有参与光路的透镜全部达标，整题才算正确。
+     * 画布上存在但没有被光线穿过的透镜不参与判定，仅在结果中列出提示。
      */
     submitAnswer() {
         if (!this.currentQuestion) {
@@ -89,228 +94,305 @@ class QuizManager {
                 isCorrect: false,
                 score: 0,
                 explanation: '请先选择一道题目',
-                details: []
+                details: { lensResults: [], globalItems: [], inactiveLenses: [] }
             };
         }
-        
+
         const question = this.currentQuestion;
         const validation = question.validation;
         const requirements = question.requirements;
-        const lenses = this.canvasManager.lenses;
+        const allLenses = this.canvasManager.lenses;
         const lightMode = this.renderer.lightMode;
-        
-        const results = [];
-        let isCorrect = true;
-        let explanationKey = 'correct';
-        
-        if (lenses.length === 0) {
+
+        if (allLenses.length === 0) {
             return {
                 isCorrect: false,
                 score: 0,
                 explanation: '请先在画布上添加一个透镜，然后再提交答案。',
-                details: []
+                details: { lensResults: [], globalItems: [], inactiveLenses: [] }
             };
         }
-        
-        const lens = lenses[0];
-        
-        if (validation.checkType) {
-            const typeCorrect = lens.type === requirements.lensType;
-            results.push({
-                name: '透镜类型',
-                expected: this.getLensTypeName(requirements.lensType),
-                actual: lens.getTypeName(),
-                correct: typeCorrect
-            });
-            
-            if (!typeCorrect) {
-                isCorrect = false;
-                explanationKey = 'wrongType';
-            }
+
+        // 实际参与光路的透镜（按光路先后排序），而不是 lenses[0]
+        const activeLenses = this.canvasManager.getActiveLenses();
+
+        if (activeLenses.length === 0) {
+            return {
+                isCorrect: false,
+                score: 0,
+                explanation: '画布上的透镜都不在当前光路上，请把透镜移动到光线能够穿过的位置（与光轴大致平齐），启动光路后再提交。',
+                details: {
+                    lensResults: [],
+                    globalItems: [],
+                    inactiveLenses: allLenses.map(lens => ({
+                        name: lens.getTypeName(),
+                        material: lens.getMaterialName()
+                    }))
+                }
+            };
         }
-        
-        if (validation.checkLightMode && isCorrect) {
+
+        // 每一片透镜一个结果分组
+        const lensResults = activeLenses.map((lens, index) => ({
+            index: index + 1,
+            name: lens.getTypeName(),
+            material: lens.getMaterialName(),
+            items: [],
+            allCorrect: true
+        }));
+        const globalItems = [];
+
+        let isCorrect = true;
+        let explanationKey = 'correct';
+        let explanationOverride = null;
+
+        // 记录第一项失败，用于选择对应讲解文案
+        const markFailure = (key, lensIndex) => {
+            if (isCorrect) {
+                isCorrect = false;
+                explanationKey = key;
+                if (activeLenses.length > 1) {
+                    explanationOverride = `第 ${lensIndex + 1} 片透镜（${activeLenses[lensIndex].getTypeName()}）不满足要求。`;
+                }
+            }
+        };
+
+        // 1. 透镜类型（逐片检查）
+        if (validation.checkType) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const typeCorrect = lens.type === requirements.lensType;
+                lensResults[lensIndex].items.push({
+                    name: '透镜类型',
+                    expected: Lens.getTypeNameByType(requirements.lensType),
+                    actual: lens.getTypeName(),
+                    correct: typeCorrect
+                });
+                if (!typeCorrect) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('wrongType', lensIndex);
+                }
+            });
+        }
+
+        // 2. 光源模式（整题只检查一次）
+        if (validation.checkLightMode) {
             const lightCorrect = lightMode === requirements.lightMode;
-            results.push({
+            globalItems.push({
                 name: '光源模式',
                 expected: requirements.lightMode === 'parallel' ? '平行光' : '点光源',
                 actual: lightMode === 'parallel' ? '平行光' : '点光源',
                 correct: lightCorrect
             });
-            
-            if (!lightCorrect) {
+            if (!lightCorrect && isCorrect) {
                 isCorrect = false;
                 explanationKey = 'wrongLightMode';
             }
         }
-        
-        if (validation.checkMaterial && isCorrect) {
-            const materialCorrect = lens.material === requirements.material;
-            results.push({
-                name: '材料类型',
-                expected: this.getMaterialName(requirements.material),
-                actual: lens.getMaterialName(),
-                correct: materialCorrect
+
+        // 3. 材料类型（逐片检查）
+        if (validation.checkMaterial) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const materialCorrect = lens.material === requirements.material;
+                lensResults[lensIndex].items.push({
+                    name: '材料类型',
+                    expected: Lens.getMaterialNameById(requirements.material),
+                    actual: lens.getMaterialName(),
+                    correct: materialCorrect
+                });
+                if (!materialCorrect) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('wrongMaterial', lensIndex);
+                }
             });
-            
-            if (!materialCorrect) {
-                isCorrect = false;
-                explanationKey = 'wrongMaterial';
-            }
         }
-        
-        if (validation.checkRefractiveIndex && isCorrect) {
-            const ri = lens.refractiveIndex;
+
+        // 4. 折射率（逐片检查）
+        if (validation.checkRefractiveIndex) {
             const minRI = requirements.minRefractiveIndex || 1.0;
             const maxRI = requirements.maxRefractiveIndex || 2.0;
-            const riCorrect = ri >= minRI && ri <= maxRI;
-            
-            results.push({
-                name: '折射率',
-                expected: `${minRI} - ${maxRI}`,
-                actual: ri.toFixed(2),
-                correct: riCorrect
+            activeLenses.forEach((lens, lensIndex) => {
+                const ri = lens.refractiveIndex;
+                const riCorrect = ri >= minRI && ri <= maxRI;
+                lensResults[lensIndex].items.push({
+                    name: '折射率',
+                    expected: `${minRI.toFixed(2)} - ${maxRI.toFixed(2)}`,
+                    actual: ri.toFixed(2),
+                    correct: riCorrect
+                });
+                if (!riCorrect) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('wrongRI', lensIndex);
+                }
             });
-            
-            if (!riCorrect) {
-                isCorrect = false;
-                explanationKey = 'wrongRI';
-            }
         }
-        
-        if (validation.checkCurvature && isCorrect) {
-            const curvature = lens.curvature;
+
+        // 5. 曲率（逐片检查）
+        if (validation.checkCurvature) {
             const minCurv = requirements.minCurvature || 0;
             const maxCurv = requirements.maxCurvature || 100;
-            const curvCorrect = curvature >= minCurv && curvature <= maxCurv;
-            
-            results.push({
-                name: '曲率',
-                expected: `${minCurv}% - ${maxCurv}%`,
-                actual: `${curvature}%`,
-                correct: curvCorrect
+            activeLenses.forEach((lens, lensIndex) => {
+                const curvature = lens.curvature;
+                const curvCorrect = curvature >= minCurv && curvature <= maxCurv;
+                lensResults[lensIndex].items.push({
+                    name: '曲率',
+                    expected: `${minCurv}% - ${maxCurv}%`,
+                    actual: `${curvature}%`,
+                    correct: curvCorrect
+                });
+                if (!curvCorrect) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('wrongCurvature', lensIndex);
+                }
             });
-            
-            if (!curvCorrect) {
-                isCorrect = false;
-                explanationKey = 'wrongCurvature';
-            }
         }
-        
-        if (validation.checkConvergence && isCorrect) {
-            const convergenceResult = this.checkConvergence(lens);
-            results.push({
-                name: '光线会聚',
-                expected: '光线会聚到一点',
-                actual: convergenceResult.message,
-                correct: convergenceResult.converging
+
+        // 6. 光线会聚（逐片检查）
+        if (validation.checkConvergence) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkConvergence(lens);
+                lensResults[lensIndex].items.push({
+                    name: '光线会聚',
+                    expected: '光线会聚到一点',
+                    actual: result.message,
+                    correct: result.converging
+                });
+                if (!result.converging) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('noConvergence', lensIndex);
+                }
             });
-            
-            if (!convergenceResult.converging) {
-                isCorrect = false;
-                explanationKey = 'noConvergence';
-            }
         }
-        
-        if (validation.checkDivergence && isCorrect) {
-            const divergenceResult = this.checkDivergence(lens);
-            results.push({
-                name: '光线发散',
-                expected: '光线向外发散',
-                actual: divergenceResult.message,
-                correct: divergenceResult.diverging
+
+        // 7. 光线发散（逐片检查）
+        if (validation.checkDivergence) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkDivergence(lens);
+                lensResults[lensIndex].items.push({
+                    name: '光线发散',
+                    expected: '光线向外发散',
+                    actual: result.message,
+                    correct: result.diverging
+                });
+                if (!result.diverging) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('noDivergence', lensIndex);
+                }
             });
-            
-            if (!divergenceResult.diverging) {
-                isCorrect = false;
-                explanationKey = 'noDivergence';
-            }
         }
-        
-        if (validation.checkNoDeflection && isCorrect) {
-            const noDeflectionResult = this.checkNoDeflection(lens);
-            results.push({
-                name: '光线偏折',
-                expected: '光线方向不变',
-                actual: noDeflectionResult.message,
-                correct: noDeflectionResult.noDeflection
+
+        // 8. 无偏折（逐片检查）
+        if (validation.checkNoDeflection) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkNoDeflection(lens);
+                lensResults[lensIndex].items.push({
+                    name: '光线偏折',
+                    expected: '光线方向不变',
+                    actual: result.message,
+                    correct: result.noDeflection
+                });
+                if (!result.noDeflection) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('hasDeflection', lensIndex);
+                }
             });
-            
-            if (!noDeflectionResult.noDeflection) {
-                isCorrect = false;
-                explanationKey = 'hasDeflection';
-            }
         }
-        
-        if (validation.checkDispersion && isCorrect) {
-            const dispersionResult = this.checkDispersion(lens);
-            results.push({
-                name: '色散效果',
-                expected: '色散现象明显',
-                actual: dispersionResult.message,
-                correct: dispersionResult.hasDispersion
+
+        // 9. 色散效果（逐片检查）
+        if (validation.checkDispersion) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkDispersion(lens);
+                lensResults[lensIndex].items.push({
+                    name: '色散效果',
+                    expected: '色散现象明显',
+                    actual: result.message,
+                    correct: result.hasDispersion
+                });
+                if (!result.hasDispersion) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('noDispersion', lensIndex);
+                }
             });
-            
-            if (!dispersionResult.hasDispersion) {
-                isCorrect = false;
-                explanationKey = 'noDispersion';
-            }
         }
-        
-        if (validation.checkLowDispersion && isCorrect) {
-            const lowDispersionResult = this.checkLowDispersion(lens);
-            results.push({
-                name: '低色散效果',
-                expected: '色散很小',
-                actual: lowDispersionResult.message,
-                correct: lowDispersionResult.lowDispersion
+
+        // 10. 低色散效果（逐片检查）
+        if (validation.checkLowDispersion) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkLowDispersion(lens);
+                lensResults[lensIndex].items.push({
+                    name: '低色散效果',
+                    expected: '色散很小',
+                    actual: result.message,
+                    correct: result.lowDispersion
+                });
+                if (!result.lowDispersion) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('highDispersion', lensIndex);
+                }
             });
-            
-            if (!lowDispersionResult.lowDispersion) {
-                isCorrect = false;
-                explanationKey = 'highDispersion';
-            }
         }
-        
-        if (validation.checkSphericalAberration && isCorrect) {
-            const aberrationResult = this.checkSphericalAberration(lens);
-            results.push({
-                name: '球差现象',
-                expected: '存在明显球差',
-                actual: aberrationResult.message,
-                correct: aberrationResult.hasAberration
+
+        // 11. 球差现象（逐片检查）
+        if (validation.checkSphericalAberration) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkSphericalAberration(lens);
+                lensResults[lensIndex].items.push({
+                    name: '球差现象',
+                    expected: '存在明显球差',
+                    actual: result.message,
+                    correct: result.hasAberration
+                });
+                if (!result.hasAberration) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('noAberration', lensIndex);
+                }
             });
-            
-            if (!aberrationResult.hasAberration) {
-                isCorrect = false;
-                explanationKey = 'noAberration';
-            }
         }
-        
-        if (validation.checkNoSphericalAberration && isCorrect) {
-            const noAberrationResult = this.checkNoSphericalAberration(lens);
-            results.push({
-                name: '消球差效果',
-                expected: '球差被消除',
-                actual: noAberrationResult.message,
-                correct: noAberrationResult.noAberration
+
+        // 12. 消球差效果（逐片检查）
+        if (validation.checkNoSphericalAberration) {
+            activeLenses.forEach((lens, lensIndex) => {
+                const result = this.checkNoSphericalAberration(lens);
+                lensResults[lensIndex].items.push({
+                    name: '消球差效果',
+                    expected: '球差被消除',
+                    actual: result.message,
+                    correct: result.noAberration
+                });
+                if (!result.noAberration) {
+                    lensResults[lensIndex].allCorrect = false;
+                    markFailure('hasAberration', lensIndex);
+                }
             });
-            
-            if (!noAberrationResult.noAberration) {
-                isCorrect = false;
-                explanationKey = 'hasAberration';
-            }
         }
-        
+
+        // 放在画布上但没有被光线穿过的透镜：不参与判定，仅列出提示
+        const activeIds = new Set(activeLenses.map(l => l.id));
+        const inactiveLenses = allLenses
+            .filter(lens => !activeIds.has(lens.id))
+            .map(lens => ({
+                name: lens.getTypeName(),
+                material: lens.getMaterialName()
+            }));
+
         let earnedScore = 0;
         if (isCorrect) {
             earnedScore = this.hintUsed ? 5 : 10;
             this.score += earnedScore;
         }
         this.totalQuestions++;
-        
-        const explanation = question.explanation[explanationKey] || question.explanation.correct;
-        
+
+        let explanation = question.explanation[explanationKey];
+        if (!explanation) {
+            explanation = question.explanation.correct;
+        }
+        if (explanationOverride) {
+            explanation = explanationOverride + explanation;
+        }
+        if (inactiveLenses.length > 0) {
+            const names = inactiveLenses.map(l => l.name).join('、');
+            explanation += `（另外画布上的 ${names} 不在光路上，未参与判定。）`;
+        }
+
         this.questionHistory.push({
             questionId: question.id,
             title: question.title,
@@ -319,14 +401,14 @@ class QuizManager {
             hintUsed: this.hintUsed,
             timestamp: Date.now()
         });
-        
+
         return {
             isCorrect: isCorrect,
             score: earnedScore,
             totalScore: this.score,
             totalQuestions: this.totalQuestions,
             explanation: explanation,
-            details: results,
+            details: { lensResults, globalItems, inactiveLenses },
             hintUsed: this.hintUsed
         };
     }
@@ -444,31 +526,6 @@ class QuizManager {
         }
         
         return { noAberration: true, message: '球差被消除，所有光线会聚到同一点' };
-    }
-    
-    /**
-     * 获取透镜类型中文名称
-     */
-    getLensTypeName(type) {
-        const names = {
-            [CONFIG.LENS_TYPES.CONVEX]: '凸透镜',
-            [CONFIG.LENS_TYPES.CONCAVE]: '凹透镜',
-            [CONFIG.LENS_TYPES.PLANO]: '平面透镜',
-            [CONFIG.LENS_TYPES.ASPHERIC]: '非球面透镜'
-        };
-        return names[type] || type;
-    }
-    
-    /**
-     * 获取材料中文名称
-     */
-    getMaterialName(material) {
-        const names = {
-            normal: '普通玻璃',
-            highIndex: '高折射率镜片',
-            lowDispersion: '低色散镜片'
-        };
-        return names[material] || material;
     }
     
     /**

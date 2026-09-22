@@ -86,28 +86,42 @@ class Lens {
     }
     
     /**
-     * 获取透镜类型名称
+     * 获取透镜类型名称（参数面板与测验结果共用同一口径）
      */
     getTypeName() {
+        return Lens.getTypeNameByType(this.type);
+    }
+
+    /**
+     * 根据类型 id 获取透镜类型名称
+     */
+    static getTypeNameByType(type) {
         const names = {
             [CONFIG.LENS_TYPES.CONVEX]: '凸透镜',
             [CONFIG.LENS_TYPES.CONCAVE]: '凹透镜',
             [CONFIG.LENS_TYPES.PLANO]: '平面透镜',
             [CONFIG.LENS_TYPES.ASPHERIC]: '非球面透镜'
         };
-        return names[this.type] || '透镜';
+        return names[type] || '透镜';
     }
-    
+
     /**
-     * 获取材料名称
+     * 获取材料名称（参数面板与测验结果共用同一口径）
      */
     getMaterialName() {
+        return Lens.getMaterialNameById(this.material);
+    }
+
+    /**
+     * 根据材料 id 获取材料名称
+     */
+    static getMaterialNameById(material) {
         const names = {
             normal: '普通玻璃',
             highIndex: '高折射率镜片',
             lowDispersion: '低色散镜片'
         };
-        return names[this.material] || '普通玻璃';
+        return names[material] || '普通玻璃';
     }
     
     /**

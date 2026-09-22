@@ -130,6 +130,12 @@
 #optics-canvas {
     width: 100%;
     height: 100%;
+    display: block;
+    /* 触摸时由 Pointer Events 接管拖动，避免页面滚动/缩放干扰 */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .canvas-drop-hint {
